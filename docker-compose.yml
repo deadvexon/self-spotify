@@ -1,0 +1,67 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  # Database Service
+  postgres:
+    image: postgres:14
+    environment:
+      POSTGRES_DB: musicroom
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # Caching Service
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  # Message Queue
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: password
+    ports:
+      - "5672:5672" # Port for services to communicate
+      - "15672:15672" # Port for the web management UI
+
+  # Microservices
+  room-service:
+    build: ./services/room-service
+    ports:
+      - "3001:3001"
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/musicroom
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+  
+  file-service:
+    build: ./services/file-service
+    ports:
+      - "3002:3002"
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/musicroom
+    volumes:
+      - ./uploads:/app/uploads
+    depends_on:
+      - postgres
+        
+  api-gateway:
+    build: ./services/api-gateway
+    ports:
+      - "3000:3000"
+    environment:
+      - ROOM_SERVICE_URL=http://room-service:3001
+    depends_on:
+      - room-service
+      - file-service 
+
+volumes:
+  postgres_data:
