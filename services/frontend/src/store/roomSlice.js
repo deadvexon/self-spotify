@@ -21,8 +21,22 @@ const roomSlice = createSlice({
     currentRoom: null,
     loading: false,
     error: null,
+    listenerCount: 0,
+    isHost: false,
   },
-  reducers: {},
+  reducers: {
+    setHost: (state, action) => {
+      state.isHost = action.payload;
+    },
+    updateListenerCount: (state, action) => {
+      state.listenerCount = action.payload;
+    },
+    clearRoom: (state) => {
+        state.currentRoom = null;
+        state.isHost = false;
+        state.listenerCount = 0;
+    }
+  },
   extraReducers: (builder) => {
     builder
       .addCase(createRoom.pending, (state) => {
@@ -39,5 +53,7 @@ const roomSlice = createSlice({
       });
   },
 });
+
+export const { setHost, updateListenerCount, clearRoom } = roomSlice.actions;
 
 export default roomSlice.reducer;
