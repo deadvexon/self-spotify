@@ -23,7 +23,7 @@ const storage = multer.diskStorage({
 		cb(null,'uploads/');
 	},
 	filename: (req, file, cb) => {
-		const uniqueNmae = `${uuidv4()}${path.extname(file.originalname)}`;
+		const uniqueName = `${uuidv4()}${path.extname(file.originalname)}`;
 		cb(null, uniqueName);
 	}
 });
@@ -40,6 +40,12 @@ const upload = multer({
 	limits: { fileSize: 50 * 1024 * 1024 } // 50MB file size limit
 });
 
+// -- Health Check --
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'healthy', service: 'file-service' });
+});
+
 // --- Upload Endpoint --- 
 app.post('/upload/:roomId', upload.single('music'), async(req, res) => {
 	try {
@@ -51,9 +57,9 @@ app.post('/upload/:roomId', upload.single('music'), async(req, res) => {
 		const filePath = req.file.path;
 
 		// Extracting metadata 
-		const metadata = await parseFIle(filePath);
+		const metadata = await parseFile(filePath);
 		const title = metadata.common.title || 'Unkown Title';
-		const artist = metadata.commom.artist || 'Unknown Artist';
+		const artist = metadata.common.artist || 'Unknown Artist';
 		const duration = Math.round(metadata.format.duration || 0);
 
 		//for now, just using the local file path

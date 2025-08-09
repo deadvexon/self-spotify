@@ -20,6 +20,12 @@ const roomSchema = Joi.object({
 	name: Joi.string().min(1).max(100).required()
 });
 
+//--- Health Check ---
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'healthy', service: 'room-service' });
+});
+
 // --- API Endpoints ---
 //
 // Create a room 

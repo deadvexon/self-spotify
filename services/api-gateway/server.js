@@ -45,8 +45,15 @@ const fileServiceProxy = createProxyMiddleware({
 	},
 });
 
+const syncServiceProxy = createProxyMiddleware({
+	target: process.env.SYNC_SERVICE_URL,
+	changeOrigin: true, 
+	ws: true // enable websocket connections
+});
+
 app.use('/api/rooms', roomServiceProxy);
-app.user('/api/files', fileServiceProxy); 
+app.use('/api/files', fileServiceProxy); 
+app.use('/socket.io', syncServiceProxy);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
