@@ -77,5 +77,15 @@ services:
       - file-service
       - sync-service 
 
+  frontend:
+    build:
+      context: ./services/frontend
+    ports:
+      - "8080:80"
+    environment:
+      - REACT_APP_API_URL=http://localhost:3000
+    depends_on:
+      - api-gateway
+
 volumes:
   postgres_data:
