@@ -17,16 +17,11 @@ export const createRoom = createAsyncThunk(
 
 export const fetchPlaylist = createAsyncThunk(
   'room/fetchPlaylist',
-  async (roomId, { rejectWithValue }) => {
-    try {
-      const response = await roomAPI.getPlaylist(roomId);
-      return response.data;
-    } catch (error) {
-      return rejectWithValue(error.response.data);
-    }
+  async (roomId) => {
+    const response = await roomAPI.getPlaylist(roomId);
+    return response.data;
   }
 );
-
 
 const roomSlice = createSlice({
   name: 'room',
