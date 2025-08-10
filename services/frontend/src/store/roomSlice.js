@@ -15,6 +15,19 @@ export const createRoom = createAsyncThunk(
   }
 );
 
+export const fetchPlaylist = createAsyncThunk(
+  'room/fetchPlaylist',
+  async (roomId, { rejectWithValue }) => {
+    try {
+      const response = await roomAPI.getPlaylist(roomId);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response.data);
+    }
+  }
+);
+
+
 const roomSlice = createSlice({
   name: 'room',
   initialState: {
@@ -23,6 +36,7 @@ const roomSlice = createSlice({
     error: null,
     listenerCount: 0,
     isHost: false,
+    playlist: [],
   },
   reducers: {
     setHost: (state, action) => {
@@ -48,6 +62,17 @@ const roomSlice = createSlice({
         state.currentRoom = action.payload;
       })
       .addCase(createRoom.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      .addCase(fetchPlaylist.pending, (state) => {
+        state.loading = true;
+      })
+      .addCase(fetchPlaylist.fulfilled, (state, action) => {
+        state.loading = false;
+        state.playlist = action.payload;
+      })
+      .addCase(fetchPlaylist.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload;
       });

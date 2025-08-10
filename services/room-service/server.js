@@ -66,6 +66,27 @@ app.get('/:roomId', async(req, res) => {
 	}
 });
 
+// Get room playlist
+app.get('/:roomId/playlist', async (req, res) => {
+  try {
+    const { roomId } = req.params;
+
+    const query = `
+      SELECT t.* FROM tracks t 
+      JOIN rooms r ON t.room_id = r.id 
+      WHERE r.id = $1 AND r.is_active = true AND t.is_active = true
+      ORDER BY t.upload_timestamp ASC
+    `;
+    const result = await pool.query(query, [roomId]);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching playlist:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
 	console.log(`Room service running on port ${PORT}`);

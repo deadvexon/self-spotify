@@ -56,6 +56,24 @@ class SocketService {
       this.socket.on('hostAssigned', callback);
     }
   }
+
+  emitChangeTrack(roomId, trackId) {
+  if (this.socket) {
+    this.socket.emit('changeTrack', { roomId, trackId });
+  }
+ }
+  emitPlayPause(data) {
+  if (this.socket) this.socket.emit('playPause', data);
+}
+
+onTrackChanged(callback) {
+  if (this.socket) this.socket.on('trackChanged', callback);
+}
+
+onPlayPause(callback) {
+  if (this.socket) this.socket.on('playPause', callback);
+}
+
 }
 
 // Export a singleton instance
