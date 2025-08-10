@@ -57,6 +57,12 @@ class SocketService {
     }
   }
 
+  onTrackAdded(callback) {
+    if (this.socket) {
+      this.socket.on('trackAdded', callback);
+    }
+  }
+
   emitChangeTrack(roomId, trackId) {
   if (this.socket) {
     this.socket.emit('changeTrack', { roomId, trackId });

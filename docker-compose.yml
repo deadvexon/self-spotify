@@ -48,10 +48,12 @@ services:
       - "3002:3002"
     environment:
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/musicroom
+      - RABBITMQ_URL=amqp://admin:password@rabbitmq:5672
     volumes:
       - ./uploads:/app/uploads
     depends_on:
       - postgres
+      - rabbitmq
   
   sync-service:
     build: ./services/sync-service

@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import SocketService from '../services/socket';
-import { fetchPlaylist, setHost, updateListenerCount, clearRoom } from '../store/roomSlice';
+import { fetchPlaylist, setHost, updateListenerCount, clearRoom, addTrack } from '../store/roomSlice';
 import { setCurrentTrack, setPlaying, syncState } from '../store/playerSlice';
 import Player from './Player';
 
@@ -54,6 +54,11 @@ const RoomPage = () => {
     SocketService.onPlayPause((data) => {
       console.log('Play/pause changed:', data);
       dispatch(setPlaying(data.isPlaying));
+    });
+
+    SocketService.onTrackAdded((track) => {
+ 	 console.log('New track added:', track);
+  	dispatch(addTrack(track));	
     });
 
     // --- Cleanup function when the component is unmounted ---

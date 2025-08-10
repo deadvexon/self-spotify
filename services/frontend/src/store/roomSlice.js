@@ -49,7 +49,10 @@ const roomSlice = createSlice({
         state.currentRoom = null;
         state.isHost = false;
         state.listenerCount = 0;
-    }
+    },
+    addTrack: (state, action) => {
+      state.playlist.push(action.payload);
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -79,6 +82,6 @@ const roomSlice = createSlice({
   },
 });
 
-export const { setHost, updateListenerCount, clearRoom } = roomSlice.actions;
+export const { setHost, updateListenerCount, clearRoom, addTrack } = roomSlice.actions;
 
 export default roomSlice.reducer;
