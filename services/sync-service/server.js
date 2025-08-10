@@ -1,44 +1,75 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const redis = require('redis'); // NEW: Import redis
+const redis = require('redis');
+const amqp = require('amqplib');
 require('dotenv').config();
 
 const app = express();
 const server = http.createServer(app);
 
-const io = socketIo(server, { /* ... CORS config ... */ });
+const io = socketIo(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 
-// --- NEW: Redis Connection ---
+// --- Redis Connection ---
 const redisClient = redis.createClient({
   url: process.env.REDIS_URL
 });
 redisClient.connect().catch(console.error);
-// ----------------------------
 
-const activeRooms = new Map(); // We still use this for fast, in-memory access
 
-app.get('/health', (req, res) => { /* ... health check ... */ });
+// --- RabbitMQ Connection ---
+// This block connects to RabbitMQ and listens for events from other services.
+(async () => {
+  try {
+    const connection = await amqp.connect(process.env.RABBITMQ_URL);
+    const channel = await connection.createChannel();
+    await channel.assertExchange('file_events', 'topic');
+    const q = await channel.assertQueue('sync_file_events', { durable: false });
+    await channel.bindQueue(q.queue, 'file_events', '#');
+
+    channel.consume(q.queue, (msg) => {
+      if (msg) {
+        const event = JSON.parse(msg.content.toString());
+        const routingKey = msg.fields.routingKey;
+        
+        if (routingKey === 'track.uploaded') {
+          console.log(`Received track.uploaded event for room ${event.roomId}`);
+          io.to(event.roomId).emit('trackAdded', event.track);
+        }
+      }
+    }, { noAck: true });
+  } catch (error) {
+    console.error("Failed to connect or consume from RabbitMQ", error);
+  }
+})();
+
+
+// We still use a Map for fast, in-memory access to listener sets, etc.
+const activeRooms = new Map();
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'healthy', service: 'sync-service' });
+});
 
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
-  socket.on('joinRoom', async (data) => { // Made this async
+  socket.on('joinRoom', async (data) => {
     const { roomId } = data;
     socket.join(roomId);
 
     if (!activeRooms.has(roomId)) {
-      // --- NEW: Try to load the room from Redis first ---
       const roomStateFromRedis = await redisClient.get(`room:${roomId}:state`);
       if (roomStateFromRedis) {
-        // If room exists in Redis, load it into memory
         activeRooms.set(roomId, { ...JSON.parse(roomStateFromRedis), listeners: new Set() });
         console.log(`Loaded room ${roomId} from Redis.`);
       } else {
-        // Otherwise, create a new room
-        activeRooms.set(roomId, {
-          currentTrack: null, currentTime: 0, isPlaying: false, listeners: new Set(), host: null
-        });
+        activeRooms.set(roomId, { host: null, currentTrack: null, currentTime: 0, isPlaying: false, listeners: new Set() });
       }
     }
 
@@ -47,77 +78,86 @@ io.on('connection', (socket) => {
 
     if (!room.host) {
       room.host = socket.id;
-      socket.emit('hostAssigned');
     }
 
-    socket.emit('roomState', { /* ... same as before ... */ });
-    socket.to(roomId).emit('listenerJoined', { listenerCount: room.listeners.size });
+    // This is the single source of truth for a new user's state.
+    socket.emit('roomState', {
+      currentTrack: room.currentTrack,
+      currentTime: room.currentTime,
+      isPlaying: room.isPlaying,
+      isHost: room.host === socket.id,
+      listenerCount: room.listeners.size
+    });
 
-    // --- NEW: Save the updated state to Redis ---
+    socket.to(roomId).emit('listenerJoined', { listenerCount: room.listeners.size });
+    
+    // Save the potentially updated host back to Redis.
     const stateToCache = { host: room.host, currentTrack: room.currentTrack, currentTime: room.currentTime, isPlaying: room.isPlaying };
-    // Set to expire in 2 hours to auto-clean abandoned rooms
     await redisClient.setEx(`room:${roomId}:state`, 7200, JSON.stringify(stateToCache));
   });
+  
+  // --- Playback Controls ---
 
-  // --- Every function that modifies the room state must now also save to Redis ---
-
-  socket.on('changeTrack', async (data) => { // Made async
-    const { roomId, trackId } = data;
+  socket.on('playPause', async (data) => {
+    const { roomId, isPlaying } = data;
     const room = activeRooms.get(roomId);
-    if (room && room.host === socket.id) {
-      room.currentTrack = trackId;
-      room.currentTime = 0;
-      room.isPlaying = true;
-      io.to(roomId).emit('trackChanged', { trackId: room.currentTrack });
 
-      // --- NEW: Save state to Redis ---
+    if (room && room.host === socket.id) {
+      room.isPlaying = isPlaying;
+      socket.to(roomId).emit('playPause', { isPlaying: room.isPlaying });
+
       const stateToCache = { host: room.host, currentTrack: room.currentTrack, currentTime: room.currentTime, isPlaying: room.isPlaying };
       await redisClient.setEx(`room:${roomId}:state`, 7200, JSON.stringify(stateToCache));
     }
   });
 
-  // Replace the entire disconnect handler in services/sync-service/server.js
+  socket.on('changeTrack', async (data) => {
+    const { roomId, trackId } = data;
+    const room = activeRooms.get(roomId);
 
-socket.on('disconnect', async () => {
-  console.log('User disconnected:', socket.id);
-  for (const [roomId, room] of activeRooms.entries()) {
-      if (room.listeners.has(socket.id)) {
-          room.listeners.delete(socket.id);
-          let hostChanged = false;
+    if (room && room.host === socket.id) {
+      room.currentTrack = trackId;
+      room.currentTime = 0;
+      room.isPlaying = true;
+      io.to(roomId).emit('trackChanged', { trackId: room.currentTrack, isPlaying: true });
 
-          if (room.host === socket.id) {
-              hostChanged = true; // Mark that the host has changed
-              if (room.listeners.size > 0) {
-                  // Promote the next listener
-                  const newHost = room.listeners.values().next().value;
-                  room.host = newHost;
-                  io.to(newHost).emit('hostAssigned');
-              } else {
-                  // Room is now empty, no host
-                  room.host = null;
-              }
-          }
+      const stateToCache = { host: room.host, currentTrack: room.currentTrack, currentTime: room.currentTime, isPlaying: room.isPlaying };
+      await redisClient.setEx(`room:${roomId}:state`, 7200, JSON.stringify(stateToCache));
+    }
+  });
 
-          socket.to(roomId).emit('listenerLeft', { listenerCount: room.listeners.size });
 
-          if (room.listeners.size === 0) {
-              // If room is empty, delete from Redis and memory
-              await redisClient.del(`room:${roomId}:state`);
-              activeRooms.delete(roomId);
-              console.log(`Room ${roomId} is empty, deleted from memory and Redis.`);
-          } else if (hostChanged) {
-              // --- THIS IS THE FIX ---
-              // If the host changed and the room is NOT empty,
-              // save the updated state (with the new host) back to Redis.
-              const stateToCache = { host: room.host, currentTrack: room.currentTrack, currentTime: room.currentTime, isPlaying: room.isPlaying };
-              await redisClient.setEx(`room:${roomId}:state`, 7200, JSON.stringify(stateToCache));
-              console.log(`Host changed in room ${roomId}, updated Redis.`);
-          }
-          break; 
-      }
-  }
-});
+  socket.on('disconnect', async () => {
+    console.log('User disconnected:', socket.id);
+    for (const [roomId, room] of activeRooms.entries()) {
+        if (room.listeners.has(socket.id)) {
+            room.listeners.delete(socket.id);
+            let hostChanged = false;
+            
+            if (room.host === socket.id) {
+                hostChanged = true;
+                if (room.listeners.size > 0) {
+                    const newHost = room.listeners.values().next().value;
+                    room.host = newHost;
+                    io.to(newHost).emit('hostAssigned');
+                } else {
+                    room.host = null;
+                }
+            }
+            
+            socket.to(roomId).emit('listenerLeft', { listenerCount: room.listeners.size });
 
+            if (room.listeners.size === 0) {
+                await redisClient.del(`room:${roomId}:state`);
+                activeRooms.delete(roomId);
+            } else if (hostChanged) {
+                const stateToCache = { host: room.host, currentTrack: room.currentTrack, currentTime: room.currentTime, isPlaying: room.isPlaying };
+                await redisClient.setEx(`room:${roomId}:state`, 7200, JSON.stringify(stateToCache));
+            }
+            break;
+        }
+    }
+  });
 });
 
 const PORT = process.env.PORT || 3003;
