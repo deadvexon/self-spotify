@@ -76,35 +76,46 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', async () => { // Made async
-    console.log('User disconnected:', socket.id);
-    for (const [roomId, room] of activeRooms.entries()) {
-        if (room.listeners.has(socket.id)) {
-            room.listeners.delete(socket.id);
+  // Replace the entire disconnect handler in services/sync-service/server.js
 
-            if (room.host === socket.id) {
-                // Host disconnected, try to assign a new one
-                if (room.listeners.size > 0) {
-                    const newHost = room.listeners.values().next().value;
-                    room.host = newHost;
-                    io.to(newHost).emit('hostAssigned');
-                } else {
-                    // Room is empty, clear the host
-                    room.host = null;
-                }
-            }
+socket.on('disconnect', async () => {
+  console.log('User disconnected:', socket.id);
+  for (const [roomId, room] of activeRooms.entries()) {
+      if (room.listeners.has(socket.id)) {
+          room.listeners.delete(socket.id);
+          let hostChanged = false;
 
-            socket.to(roomId).emit('listenerLeft', { listenerCount: room.listeners.size });
+          if (room.host === socket.id) {
+              hostChanged = true; // Mark that the host has changed
+              if (room.listeners.size > 0) {
+                  // Promote the next listener
+                  const newHost = room.listeners.values().next().value;
+                  room.host = newHost;
+                  io.to(newHost).emit('hostAssigned');
+              } else {
+                  // Room is now empty, no host
+                  room.host = null;
+              }
+          }
 
-            if (room.listeners.size === 0) {
-                // --- NEW: Delete from Redis when room is empty ---
-                await redisClient.del(`room:${roomId}:state`);
-                activeRooms.delete(roomId);
-                console.log(`Room ${roomId} is empty, deleted from memory and Redis.`);
-            }
-            break; // Exit loop once user is found and removed
-        }
-    }
+          socket.to(roomId).emit('listenerLeft', { listenerCount: room.listeners.size });
+
+          if (room.listeners.size === 0) {
+              // If room is empty, delete from Redis and memory
+              await redisClient.del(`room:${roomId}:state`);
+              activeRooms.delete(roomId);
+              console.log(`Room ${roomId} is empty, deleted from memory and Redis.`);
+          } else if (hostChanged) {
+              // --- THIS IS THE FIX ---
+              // If the host changed and the room is NOT empty,
+              // save the updated state (with the new host) back to Redis.
+              const stateToCache = { host: room.host, currentTrack: room.currentTrack, currentTime: room.currentTime, isPlaying: room.isPlaying };
+              await redisClient.setEx(`room:${roomId}:state`, 7200, JSON.stringify(stateToCache));
+              console.log(`Host changed in room ${roomId}, updated Redis.`);
+          }
+          break; 
+      }
+  }
 });
 
 });
