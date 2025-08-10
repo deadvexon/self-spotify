@@ -1,67 +1,35 @@
-// services/frontend/src/components/Player.js
-import React, { useRef, useEffect } from 'react';
+import React from 'react';
 import { useSelector } from 'react-redux';
-import SocketService from '../services/socket';
 
 const Player = () => {
-  const audioRef = useRef(null); // Ref to control the <audio> element
+  // Get the currently selected "track" (which is now an image) from Redux
+  const { currentTrackId } = useSelector((state) => state.player);
+  const { playlist } = useSelector((state) => state.room);
 
-  const { currentTrack, isPlaying } = useSelector((state) => state.player);
-  const { isHost, currentRoom } = useSelector((state) => state.room);
+  const currentImage = playlist.find(item => item.id === currentTrackId);
 
-  const handlePlayPause = () => {
-    if (!currentTrack) return;
+  // Construct the full URL to the image via our API gateway
+  const imageUrl = currentImage 
+    ? `${process.env.REACT_APP_API_URL}/api/files${currentImage.file_url}`
+    : null;
 
-    const newIsPlaying = !isPlaying;
-
-    if (isHost) {
-      SocketService.emitPlayPause({
-        roomId: currentRoom.id,
-        isPlaying: newIsPlaying,
-        currentTime: audioRef.current.currentTime,
-        trackId: currentTrack.id,
-      });
-    }
-  };
-
-  // Effect to sync the <audio> element with the Redux state
-  useEffect(() => {
-    if (!audioRef.current) return;
-
-    if (isPlaying) {
-      audioRef.current.play().catch(e => console.error("Audio play failed:", e));
-    } else {
-      audioRef.current.pause();
-    }
-  }, [isPlaying]);
-
-  useEffect(() => {
-    if (!audioRef.current || !currentTrack) return;
-
-    // Construct the full URL to the audio file
-    const apiUrl = (process.env.REACT_APP_API_URL || 'http://localhost:3000').replace('/api','');
-    const trackUrl = `${apiUrl}/api/files${currentTrack.file_url}`;
-
-    if (audioRef.current.src !== trackUrl) {
-        audioRef.current.src = trackUrl;
-    }
-
-    if (isPlaying) {
-      audioRef.current.play().catch(e => console.error("Audio play failed:", e));
-    }
-  }, [currentTrack, isPlaying]);
+  console.log({
+    step: 3,
+    currentIdFromRedux: currentTrackId,
+    foundImageObject: currentImage,
+    finalImageUrl: imageUrl
+  });
 
   return (
     <div>
-      <h2>Player</h2>
-      <audio ref={audioRef} />
-      {currentTrack && (
+      <h2>Image Viewer</h2>
+      {imageUrl ? (
         <div>
-          <p>Now Playing: {currentTrack.title} - {currentTrack.artist}</p>
-          <button onClick={handlePlayPause} disabled={!isHost}>
-            {isPlaying ? 'Pause' : 'Play'}
-          </button>
+          <p>Viewing: {currentImage.title}</p>
+          <img src={imageUrl} alt={currentImage.title} style={{ maxWidth: '400px', maxHeight: '400px', border: '1px solid white' }} />
         </div>
+      ) : (
+        <p>No image selected. The host can select an image from the list.</p>
       )}
     </div>
   );

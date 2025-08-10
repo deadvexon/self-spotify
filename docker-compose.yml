@@ -29,7 +29,11 @@ services:
     ports:
       - "5672:5672" # Port for services to communicate
       - "15672:15672" # Port for the web management UI
-
+    healthcheck:
+            test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
   # Microservices
   room-service:
     build: ./services/room-service
@@ -52,8 +56,10 @@ services:
     volumes:
       - ./uploads:/app/uploads
     depends_on:
-      - postgres
-      - rabbitmq
+      postgres:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
   
   sync-service:
     build: ./services/sync-service
@@ -82,10 +88,10 @@ services:
   frontend:
     build:
       context: ./services/frontend
+      args:
+              - REACT_APP_API_URL=${REACT_APP_API_URL}
     ports:
       - "8080:80"
-    environment:
-      - REACT_APP_API_URL=http://localhost:3000
     depends_on:
       - api-gateway
 
